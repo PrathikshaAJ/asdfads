@@ -1,0 +1,930 @@
+User Authentication API
+1. Setup and Dependencies
+First, set up a Node.js project and install necessary dependencies.
+
+bash
+Copy code
+mkdir mindsprint-platform
+cd mindsprint-platform
+npm init -y
+npm install express mongoose bcryptjs jsonwebtoken nodemailer dotenv
+2. Project Structure
+Create a basic project structure.
+
+arduino
+Copy code
+mindsprint-platform
+│   .env
+│   server.js
+└───config
+│   │   db.js
+└───models
+│   │   User.js
+└───routes
+│   │   auth.js
+└───middleware
+    │   authMiddleware.js
+3. Environment Variables
+Create a .env file to store environment variables.
+
+env
+Copy code
+PORT=5000
+MONGO_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+EMAIL_USER=your_email@example.com
+EMAIL_PASS=your_email_password
+4. Database Configuration
+Set up MongoDB connection.
+
+config/db.js:
+
+javascript
+Copy code
+const mongoose = require('mongoose');
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
+        console.log('MongoDB connected...');
+    } catch (err) {
+        console.error(err.message);
+        process.exit(1);
+    }
+};
+module.exports = connectDB;
+5. User Model
+Define the User model.
+
+models/User.js:
+
+javascript
+Copy code
+const mongoose = require('mongoose');
+const UserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date }
+});
+module.exports = mongoose.model('User', UserSchema);
+6. Authentication Routes
+Implement authentication routes.
+
+routes/auth.js:
+
+javascript
+Copy code
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const User = require('../models/User');
+const router = express.Router();
+
+// Register
+router.post('/register', async (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+        let user = await User.findOne({ email });
+        if (user) {
+            return res.status(400).json({ msg: 'User already exists' });
+        }
+        user = new User({ name, email, password });
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        await user.save();
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid Credentials' });
+        }
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid Credentials' });
+        }
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Forget Password
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'User not found' });
+        }
+        const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        user.resetPasswordToken = token;
+        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+        await user.save();
+        const transporter = nodemailer.createTransport({
+            service: 'Gmail',
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+            }
+        });
+        const mailOptions = {
+            to: user.email,
+            from: process.env.EMAIL_USER,
+            subject: 'Password Reset',
+            text: `Please click on the following link to reset your password: http://localhost:5000/reset-password/${token}`
+        };
+        transporter.sendMail(mailOptions, (err, info) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('Error sending email');
+            }
+            res.json({ msg: 'Email sent' });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Reset Password
+router.post('/reset-password/:token', async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({
+            _id: decoded.id,
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid or expired token' });
+        }
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+        res.json({ msg: 'Password reset successful' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Change Password
+router.post('/change-password', async (req, res) => {
+    const { email, oldPassword, newPassword } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'User not found' });
+        }
+        const isMatch = await bcrypt.compare(oldPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid old password' });
+        }
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+        res.json({ msg: 'Password changed successfully' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+module.exports = router;
+7. Middleware for Protected Routes
+Create middleware to protect routes.
+
+middleware/authMiddleware.js:
+
+javascript
+Copy code
+const jwt = require('jsonwebtoken');
+module.exports = function (req, res, next) {
+    const token = req.header('x-auth-token');
+    if (!token) {
+        return res.status(401).json({ msg: 'No token, authorization denied' });
+    }
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded.user;
+        next();
+    } catch (err) {
+        res.status(401).json({ msg: 'Token is not valid' });
+    }
+};
+8. Server Setup
+Initialize the server and use the routes.
+
+server.js:
+
+javascript
+Copy code
+const express = require('express');
+const connectDB = require('./config/db');
+const app = express();
+
+// Connect Database
+connectDB();
+
+// Init Middleware
+app.use(express.json());
+
+// Define Routes
+app.use('/api/auth', require('./routes/auth'));
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+This setup provides a basic User Authentication API with functionalities for login, registration, password recovery, and password change. The next steps would involve adding course management, user profiles, and interactive assessment features.
+
+api for the above 
+ChatGPT
+Below are the API specifications for the user authentication features. These specifications include the endpoints, request parameters, responses, and possible error messages.
+
+User Authentication API Specifications
+1. Register User
+Endpoint: POST /api/auth/register
+Description: Register a new user.
+Request:
+Headers: None
+Body:
+json
+Copy code
+{
+  "name": "John Doe",
+  "email": "johndoe@example.com",
+  "password": "password123"
+}
+Response:
+Success (Status 200):
+json
+Copy code
+{
+  "token": "jwt_token"
+}
+Error:
+Status 400: User already exists
+Status 500: Server error
+2. Login User
+Endpoint: POST /api/auth/login
+Description: Log in an existing user.
+Request:
+Headers: None
+Body:
+json
+Copy code
+{
+  "email": "johndoe@example.com",
+  "password": "password123"
+}
+Response:
+Success (Status 200):
+json
+Copy code
+{
+  "token": "jwt_token"
+}
+Error:
+Status 400: Invalid credentials
+Status 500: Server error
+3. Forgot Password
+Endpoint: POST /api/auth/forgot-password
+Description: Send a password reset email to the user.
+Request:
+Headers: None
+Body:
+json
+Copy code
+{
+  "email": "johndoe@example.com"
+}
+Response:
+Success (Status 200):
+json
+Copy code
+{
+  "msg": "Email sent"
+}
+Error:
+Status 400: User not found
+Status 500: Server error
+4. Reset Password
+Endpoint: POST /api/auth/reset-password/:token
+Description: Reset user password using the token sent in the email.
+Request:
+Headers: None
+Body:
+json
+Copy code
+{
+  "password": "newpassword123"
+}
+Response:
+Success (Status 200):
+json
+Copy code
+{
+  "msg": "Password reset successful"
+}
+Error:
+Status 400: Invalid or expired token
+Status 500: Server error
+5. Change Password
+Endpoint: POST /api/auth/change-password
+Description: Change the password for a logged-in user.
+Request:
+Headers:
+x-auth-token: jwt_token
+Body:
+json
+Copy code
+{
+  "email": "johndoe@example.com",
+  "oldPassword": "oldpassword123",
+  "newPassword": "newpassword123"
+}
+Response:
+Success (Status 200):
+json
+Copy code
+{
+  "msg": "Password changed successfully"
+}
+Error:
+Status 400: User not found or invalid old password
+Status 500: Server error
+Sample Implementation
+Below is the updated sample implementation for the above APIs in Node.js with Express.
+
+1. Dependencies and Setup
+Install the necessary dependencies if not already done.
+
+bash
+Copy code
+npm install express mongoose bcryptjs jsonwebtoken nodemailer dotenv
+2. Project Structure
+Create the project structure as outlined previously.
+
+3. .env File
+Update the .env file with your configuration.
+
+env
+Copy code
+PORT=5000
+MONGO_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+EMAIL_USER=your_email@example.com
+EMAIL_PASS=your_email_password
+4. Database Configuration
+config/db.js:
+
+javascript
+Copy code
+const mongoose = require('mongoose');
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
+        console.log('MongoDB connected...');
+    } catch (err) {
+        console.error(err.message);
+        process.exit(1);
+    }
+};
+module.exports = connectDB;
+5. User Model
+models/User.js:
+
+javascript
+Copy code
+const mongoose = require('mongoose');
+const UserSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date }
+});
+module.exports = mongoose.model('User', UserSchema);
+6. Authentication Routes
+routes/auth.js:
+
+javascript
+Copy code
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const User = require('../models/User');
+const router = express.Router();
+
+// Register
+router.post('/register', async (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+        let user = await User.findOne({ email });
+        if (user) {
+            return res.status(400).json({ msg: 'User already exists' });
+        }
+        user = new User({ name, email, password });
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        await user.save();
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid Credentials' });
+        }
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid Credentials' });
+        }
+        const payload = { user: { id: user.id } };
+        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+            if (err) throw err;
+            res.json({ token });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Forget Password
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'User not found' });
+        }
+        const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        user.resetPasswordToken = token;
+        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+        await user.save();
+        const transporter = nodemailer.createTransport({
+            service: 'Gmail',
+            auth: {
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
+            }
+        });
+        const mailOptions = {
+            to: user.email,
+            from: process.env.EMAIL_USER,
+            subject: 'Password Reset',
+            text: `Please click on the following link to reset your password: http://localhost:5000/reset-password/${token}`
+        };
+        transporter.sendMail(mailOptions, (err, info) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('Error sending email');
+            }
+            res.json({ msg: 'Email sent' });
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Reset Password
+router.post('/reset-password/:token', async (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({
+            _id: decoded.id,
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid or expired token' });
+        }
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+        res.json({ msg: 'Password reset successful' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+using java springboot
+ChatGPT
+To implement the User Authentication API using Java Spring Boot, follow the steps below. This will include endpoints for login, register, forget password, and change password.
+
+Project Setup
+Create a Spring Boot project using Spring Initializr (https://start.spring.io/):
+
+Project: Maven Project
+Language: Java
+Spring Boot: 2.5.4 (or latest)
+Dependencies:
+Spring Web
+Spring Data JPA
+Spring Security
+Spring Boot DevTools
+Thymeleaf (for email templates)
+Spring Mail
+H2 Database (for simplicity in this example)
+Lombok
+Generate the project and import it into your IDE (IntelliJ IDEA, Eclipse, etc.).
+
+Project Structure
+Create the following project structure:
+
+css
+Copy code
+src/main/java/com/example/mindsprint/
+├── config
+│   └── SecurityConfig.java
+├── controller
+│   └── AuthController.java
+├── dto
+│   ├── LoginRequest.java
+│   ├── RegisterRequest.java
+│   ├── ForgotPasswordRequest.java
+│   ├── ResetPasswordRequest.java
+│   └── ChangePasswordRequest.java
+├── model
+│   └── User.java
+├── repository
+│   └── UserRepository.java
+├── service
+│   ├── AuthService.java
+│   ├── EmailService.java
+│   └── UserService.java
+└── MindSprintApplication.java
+Step-by-Step Implementation
+1. Configuration
+config/SecurityConfig.java:
+
+java
+Copy code
+package com.example.mindsprint.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+            .authorizeRequests()
+            .antMatchers("/api/auth/**").permitAll()
+            .anyRequest().authenticated();
+    }
+}
+2. Models
+model/User.java:
+
+java
+Copy code
+package com.example.mindsprint.model;
+
+import lombok.Data;
+
+import javax.persistence.*;
+import java.util.Date;
+
+@Data
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private String email;
+    private String password;
+    private String resetPasswordToken;
+    private Date resetPasswordExpires;
+}
+3. Repositories
+repository/UserRepository.java:
+
+java
+Copy code
+package com.example.mindsprint.repository;
+
+import com.example.mindsprint.model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    Optional<User> findByResetPasswordToken(String token);
+}
+4. DTOs
+dto/LoginRequest.java:
+
+java
+Copy code
+package com.example.mindsprint.dto;
+
+import lombok.Data;
+
+@Data
+public class LoginRequest {
+    private String email;
+    private String password;
+}
+dto/RegisterRequest.java:
+
+java
+Copy code
+package com.example.mindsprint.dto;
+
+import lombok.Data;
+
+@Data
+public class RegisterRequest {
+    private String name;
+    private String email;
+    private String password;
+}
+dto/ForgotPasswordRequest.java:
+
+java
+Copy code
+package com.example.mindsprint.dto;
+
+import lombok.Data;
+
+@Data
+public class ForgotPasswordRequest {
+    private String email;
+}
+dto/ResetPasswordRequest.java:
+
+java
+Copy code
+package com.example.mindsprint.dto;
+
+import lombok.Data;
+
+@Data
+public class ResetPasswordRequest {
+    private String token;
+    private String password;
+}
+dto/ChangePasswordRequest.java:
+
+java
+Copy code
+package com.example.mindsprint.dto;
+
+import lombok.Data;
+
+@Data
+public class ChangePasswordRequest {
+    private String email;
+    private String oldPassword;
+    private String newPassword;
+}
+5. Services
+service/AuthService.java:
+
+java
+Copy code
+package com.example.mindsprint.service;
+
+import com.example.mindsprint.dto.*;
+import com.example.mindsprint.model.User;
+import com.example.mindsprint.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.Date;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+public class AuthService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private EmailService emailService;
+
+    public void register(RegisterRequest registerRequest) {
+        User user = new User();
+        user.setName(registerRequest.getName());
+        user.setEmail(registerRequest.getEmail());
+        user.setPassword(passwordEncoder.encode(registerRequest.getPassword()));
+        userRepository.save(user);
+    }
+
+    public String login(LoginRequest loginRequest) {
+        Optional<User> optionalUser = userRepository.findByEmail(loginRequest.getEmail());
+        if (optionalUser.isPresent()) {
+            User user = optionalUser.get();
+            if (passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
+                return "Login successful";
+            } else {
+                throw new RuntimeException("Invalid credentials");
+            }
+        } else {
+            throw new RuntimeException("Invalid credentials");
+        }
+    }
+
+    public void forgotPassword(ForgotPasswordRequest forgotPasswordRequest) {
+        Optional<User> optionalUser = userRepository.findByEmail(forgotPasswordRequest.getEmail());
+        if (optionalUser.isPresent()) {
+            User user = optionalUser.get();
+            user.setResetPasswordToken(UUID.randomUUID().toString());
+            user.setResetPasswordExpires(new Date(System.currentTimeMillis() + 3600000)); // 1 hour
+            userRepository.save(user);
+            emailService.sendPasswordResetEmail(user);
+        } else {
+            throw new RuntimeException("User not found");
+        }
+    }
+
+    public void resetPassword(ResetPasswordRequest resetPasswordRequest) {
+        Optional<User> optionalUser = userRepository.findByResetPasswordToken(resetPasswordRequest.getToken());
+        if (optionalUser.isPresent()) {
+            User user = optionalUser.get();
+            if (user.getResetPasswordExpires().after(new Date())) {
+                user.setPassword(passwordEncoder.encode(resetPasswordRequest.getPassword()));
+                user.setResetPasswordToken(null);
+                user.setResetPasswordExpires(null);
+                userRepository.save(user);
+            } else {
+                throw new RuntimeException("Token expired");
+            }
+        } else {
+            throw new RuntimeException("Invalid token");
+        }
+    }
+
+    public void changePassword(ChangePasswordRequest changePasswordRequest) {
+        Optional<User> optionalUser = userRepository.findByEmail(changePasswordRequest.getEmail());
+        if (optionalUser.isPresent()) {
+            User user = optionalUser.get();
+            if (passwordEncoder.matches(changePasswordRequest.getOldPassword(), user.getPassword())) {
+                user.setPassword(passwordEncoder.encode(changePasswordRequest.getNewPassword()));
+                userRepository.save(user);
+            } else {
+                throw new RuntimeException("Invalid old password");
+            }
+        } else {
+            throw new RuntimeException("User not found");
+        }
+    }
+}
+service/EmailService.java:
+
+java
+Copy code
+package com.example.mindsprint.service;
+
+import com.example.mindsprint.model.User;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+
+@Service
+public class EmailService {
+
+    @Autowired
+    private JavaMailSender mailSender;
+
+    public void sendPasswordResetEmail(User user) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(user.getEmail());
+        message.setSubject("Password Reset Request");
+        message.setText("To reset your password, click the link below:\n" +
+                "http://localhost:8080/reset-password?token=" + user.getResetPasswordToken());
+        mailSender.send(message);
+    }
+}
+6. Controllers
+controller/AuthController.java:
+
+java
+Copy code
+package com.example.mindsprint.controller;
+
+import com.example.mindsprint.dto.*;
+import com.example.mindsprint.service.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    @Autowired
+    private AuthService authService;
+
+    @PostMapping("/register")
+    public String register(@RequestBody RegisterRequest registerRequest) {
+        authService.register(registerRequest);
+        return "User registered successfully";
+    }
+
+    @PostMapping("/login")
+    public String login(@RequestBody LoginRequest loginRequest) {
+        return authService.login(loginRequest);
+    }
+
+    @PostMapping("/forgot-password")
+    public String forgotPassword(@RequestBody ForgotPasswordRequest forgotPasswordRequest) {
+        authService.forgotPassword(forgotPasswordRequest);
+        return "Password reset email sent";
+    }
+
+    @PostMapping("/reset-password")
+    public String resetPassword(@RequestBody ResetPasswordRequest resetPasswordRequest) {
+        authService.resetPassword(resetPasswordRequest);
+        return "Password reset successfully";
+    }
+
+    @PostMapping("/change-password")
+    public String changePassword(@RequestBody ChangePasswordRequest changePasswordRequest) {
+        authService.changePassword(changePasswordRequest);
+        return "Password changed successfully";
+    }
+}
+Running the Application
+Run the application from your IDE or by using the following Maven command:
+
+bash
+Copy code
+mvn spring-boot:run
+The application will be available at http://localhost:8080.
+
+Testing the Endpoints
+You can use Postman or any other API testing tool to test the endpoints:
+
+Register: POST http://localhost:8080/api/auth/register
+Login: POST http://localhost:8080/api/auth/login
+Forgot Password: POST http://localhost:8080/api/auth/forgot-password
+Reset Password: POST http://localhost:8080/api/auth/reset-password
+Change Password: POST http://localhost:8080/api/auth/change-password
+This setup covers the basic implementation of user authentication using Spring Boot. For a production application, additional features such as email verification, enhanced security measures, and proper error handling would be necessary.
