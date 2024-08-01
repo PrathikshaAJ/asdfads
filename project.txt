@@ -1,3 +1,308 @@
+
+
+
+To create a frontend for the educational platform using React, we'll build a simple user interface that allows users to create quizzes, take quizzes, and view grades. Here's a step-by-step guide to setting up the React frontend:
+
+### 1. Setting Up the Environment
+
+First, ensure you have Node.js and npm installed. Then, create a new React application using Create React App.
+
+```bash
+npx create-react-app quiz-app
+cd quiz-app
+```
+
+### 2. Install Axios
+
+We'll use Axios for making HTTP requests to our Spring Boot backend.
+
+```bash
+npm install axios
+```
+
+### 3. Create the Project Structure
+
+Your project structure should look something like this:
+
+```
+src/
+│   ├── App.js
+│   ├── index.js
+│   ├── components
+│   │   ├── CreateQuiz.js
+│   │   ├── TakeQuiz.js
+│   │   ├── ViewGrades.js
+│   │   └── Navbar.js
+│   ├── services
+│   │   └── api.js
+│   └── App.css
+```
+
+### 4. Create the Components
+
+#### Navbar.js
+```jsx
+import React from 'react';
+import { Link } from 'react-router-dom';
+
+const Navbar = () => {
+    return (
+        <nav>
+            <ul>
+                <li><Link to="/">Home</Link></li>
+                <li><Link to="/create-quiz">Create Quiz</Link></li>
+                <li><Link to="/take-quiz">Take Quiz</Link></li>
+                <li><Link to="/view-grades">View Grades</Link></li>
+            </ul>
+        </nav>
+    );
+};
+
+export default Navbar;
+```
+
+#### CreateQuiz.js
+```jsx
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const CreateQuiz = () => {
+    const [title, setTitle] = useState('');
+    const [questions, setQuestions] = useState([{ questionText: '', correctAnswer: '' }]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        const username = 'exampleUser'; // Replace with dynamic user
+
+        try {
+            const response = await axios.post('http://localhost:8080/quiz/create', {
+                username,
+                title,
+                questions
+            });
+            console.log(response.data);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const addQuestion = () => {
+        setQuestions([...questions, { questionText: '', correctAnswer: '' }]);
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <h2>Create Quiz</h2>
+            <label>Title:</label>
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <h3>Questions:</h3>
+            {questions.map((question, index) => (
+                <div key={index}>
+                    <label>Question:</label>
+                    <input
+                        type="text"
+                        value={question.questionText}
+                        onChange={(e) => {
+                            const newQuestions = [...questions];
+                            newQuestions[index].questionText = e.target.value;
+                            setQuestions(newQuestions);
+                        }}
+                        required
+                    />
+                    <label>Correct Answer:</label>
+                    <input
+                        type="text"
+                        value={question.correctAnswer}
+                        onChange={(e) => {
+                            const newQuestions = [...questions];
+                            newQuestions[index].correctAnswer = e.target.value;
+                            setQuestions(newQuestions);
+                        }}
+                        required
+                    />
+                </div>
+            ))}
+            <button type="button" onClick={addQuestion}>Add Question</button>
+            <button type="submit">Create Quiz</button>
+        </form>
+    );
+};
+
+export default CreateQuiz;
+```
+
+#### TakeQuiz.js
+```jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const TakeQuiz = () => {
+    const [quizId, setQuizId] = useState('');
+    const [questions, setQuestions] = useState([]);
+    const [answers, setAnswers] = useState({});
+
+    const fetchQuiz = async () => {
+        try {
+            const response = await axios.get(`http://localhost:8080/quiz/${quizId}`);
+            setQuestions(response.data.questions);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        const username = 'exampleUser'; // Replace with dynamic user
+
+        const formattedAnswers = Object.keys(answers).map((questionId) => ({
+            id: questionId,
+            correctAnswer: answers[questionId],
+        }));
+
+        try {
+            const response = await axios.post(`http://localhost:8080/quiz/submit/${quizId}`, {
+                username,
+                answers: formattedAnswers
+            });
+            console.log(response.data);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    useEffect(() => {
+        if (quizId) {
+            fetchQuiz();
+        }
+    }, [quizId]);
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <h2>Take Quiz</h2>
+            <label>Quiz ID:</label>
+            <input type="text" value={quizId} onChange={(e) => setQuizId(e.target.value)} required />
+            <button type="button" onClick={fetchQuiz}>Fetch Quiz</button>
+            {questions.map((question) => (
+                <div key={question.id}>
+                    <p>{question.questionText}</p>
+                    <input
+                        type="text"
+                        onChange={(e) => {
+                            setAnswers({
+                                ...answers,
+                                [question.id]: e.target.value
+                            });
+                        }}
+                        required
+                    />
+                </div>
+            ))}
+            <button type="submit">Submit Answers</button>
+        </form>
+    );
+};
+
+export default TakeQuiz;
+```
+
+#### ViewGrades.js
+```jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const ViewGrades = () => {
+    const [grades, setGrades] = useState([]);
+    const username = 'exampleUser'; // Replace with dynamic user
+
+    const fetchGrades = async () => {
+        try {
+            const response = await axios.get(`http://localhost:8080/user/grades/${username}`);
+            setGrades(response.data.grades);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    useEffect(() => {
+        fetchGrades();
+    }, []);
+
+    return (
+        <div>
+            <h2>View Grades</h2>
+            <ul>
+                {grades.map((grade) => (
+                    <li key={grade.quiz_id}>
+                        Quiz ID: {grade.quiz_id} - Score: {grade.score}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default ViewGrades;
+```
+
+### 5. Configure Routing
+
+#### App.js
+```jsx
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
+import Navbar from './components/Navbar';
+import CreateQuiz from './components/CreateQuiz';
+import TakeQuiz from './components/TakeQuiz';
+import ViewGrades from './components/ViewGrades';
+
+const App = () => {
+    return (
+        <Router>
+            <Navbar />
+            <Switch>
+                <Route path="/create-quiz" component={CreateQuiz} />
+                <Route path="/take-quiz" component={TakeQuiz} />
+                <Route path="/view-grades" component={ViewGrades} />
+            </Switch>
+        </Router>
+    );
+};
+
+export default App;
+```
+
+### 6. Running the Application
+
+To run the React application, navigate to the project directory and use npm to start the development server:
+
+```bash
+npm start
+```
+
+Your React frontend should now be up and running, allowing you to create quizzes, take quizzes, and view grades. You can test the endpoints and see how the quizzes and grading system work with the Spring Boot backend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+****************************************************
+
 User Authentication API
 1. Setup and Dependencies
 First, set up a Node.js project and install necessary dependencies.
