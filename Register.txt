@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import axiosInstance from '../axiosConfig';
 
-const Register = () => {
+const Login = () => {
     const [formData, setFormData] = useState({
-        name: '',
         email: '',
         password: '',
-        roles: ['ROLE_USER']
     });
 
     const handleChange = (e) => {
@@ -20,29 +18,18 @@ const Register = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const response = await axiosInstance.post('/auth/register', formData);
-            alert(response.data);
+            const response = await axiosInstance.post('/auth/login', formData);
+            alert(`Login successful: ${response.data}`);
         } catch (error) {
             console.error(error);
-            alert('Registration failed');
+            alert('Login failed');
         }
     };
 
     return (
         <div className="container">
-            <h2>Register</h2>
+            <h2>Login</h2>
             <form onSubmit={handleSubmit}>
-                <div className="form-group">
-                    <label>Name:</label>
-                    <input
-                        type="text"
-                        className="form-control"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
                 <div className="form-group">
                     <label>Email:</label>
                     <input
@@ -65,22 +52,11 @@ const Register = () => {
                         required
                     />
                 </div>
-                <div className="form-group">
-                    <label>Roles:</label>
-                    <select
-                        className="form-control"
-                        name="roles"
-                        value={formData.roles}
-                        onChange={(e) => setFormData({ ...formData, roles: [e.target.value] })}
-                    >
-                        <option value="ROLE_USER">User</option>
-                        <option value="ROLE_ADMIN">Admin</option>
-                    </select>
-                </div>
-                <button type="submit" className="btn btn-primary">Register</button>
+                <button type="submit" className="btn btn-primary">Login</button>
             </form>
         </div>
     );
 };
 
-export default Register;
+export default Login;
+
