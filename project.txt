@@ -1,3 +1,367 @@
+
+using routers
+
+
+Sure! Let's enhance the React front-end by adding React Router for navigation between the registration and login pages.
+
+### Project Setup with React Router
+
+1. **Install React Router**:
+    ```bash
+    npm install react-router-dom
+    ```
+
+2. **Update Project Structure**:
+    - Create separate pages for Registration and Login.
+    - Use React Router to navigate between these pages.
+
+### Components and Pages
+
+**src/pages/RegisterPage.js**:
+```javascript
+import React from 'react';
+import Register from '../components/Register';
+
+const RegisterPage = () => {
+    return (
+        <div>
+            <h2>Register</h2>
+            <Register />
+        </div>
+    );
+};
+
+export default RegisterPage;
+```
+
+**src/pages/LoginPage.js**:
+```javascript
+import React from 'react';
+import Login from '../components/Login';
+
+const LoginPage = () => {
+    return (
+        <div>
+            <h2>Login</h2>
+            <Login />
+        </div>
+    );
+};
+
+export default LoginPage;
+```
+
+### App Component with React Router
+
+**src/App.js**:
+```javascript
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch, Link } from 'react-router-dom';
+import RegisterPage from './pages/RegisterPage';
+import LoginPage from './pages/LoginPage';
+
+const App = () => {
+    return (
+        <Router>
+            <div>
+                <nav>
+                    <ul>
+                        <li>
+                            <Link to="/register">Register</Link>
+                        </li>
+                        <li>
+                            <Link to="/login">Login</Link>
+                        </li>
+                    </ul>
+                </nav>
+
+                <Switch>
+                    <Route path="/register">
+                        <RegisterPage />
+                    </Route>
+                    <Route path="/login">
+                        <LoginPage />
+                    </Route>
+                    <Route path="/">
+                        <h1>Welcome to MindSprint</h1>
+                        <p>Select an option above to get started.</p>
+                    </Route>
+                </Switch>
+            </div>
+        </Router>
+    );
+};
+
+export default App;
+```
+
+### Running the React Application
+
+1. **Start the React Application**:
+    ```bash
+    npm start
+    ```
+
+2. **Access the Application**:
+    - Open your browser and navigate to `http://localhost:3000`.
+
+You should now have navigation links for "Register" and "Login" at the top of the page. Clicking on these links will navigate to their respective forms, allowing users to register or log in.
+
+### Summary
+
+Here's the summary of the files involved:
+
+**src/api/axiosConfig.js**:
+```javascript
+import axios from 'axios';
+
+const axiosInstance = axios.create({
+    baseURL: 'http://localhost:8080/api',
+    headers: {
+        'Content-Type': 'application/json',
+    },
+});
+
+export default axiosInstance;
+```
+
+**src/components/Register.js**:
+```javascript
+import React, { useState } from 'react';
+import axiosInstance from '../api/axiosConfig';
+
+const Register = () => {
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        password: '',
+        roles: ['ROLE_USER']
+    });
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData({
+            ...formData,
+            [name]: value,
+        });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axiosInstance.post('/auth/register', formData);
+            alert(response.data);
+        } catch (error) {
+            console.error(error);
+            alert('Registration failed');
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div>
+                <label>Name:</label>
+                <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                />
+            </div>
+            <div>
+                <label>Email:</label>
+                <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                />
+            </div>
+            <div>
+                <label>Password:</label>
+                <input
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                />
+            </div>
+            <div>
+                <label>Roles:</label>
+                <select
+                    name="roles"
+                    value={formData.roles}
+                    onChange={(e) => setFormData({ ...formData, roles: [e.target.value] })}
+                >
+                    <option value="ROLE_USER">User</option>
+                    <option value="ROLE_ADMIN">Admin</option>
+                </select>
+            </div>
+            <button type="submit">Register</button>
+        </form>
+    );
+};
+
+export default Register;
+```
+
+**src/components/Login.js**:
+```javascript
+import React, { useState } from 'react';
+import axiosInstance from '../api/axiosConfig';
+
+const Login = () => {
+    const [formData, setFormData] = useState({
+        email: '',
+        password: '',
+    });
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData({
+            ...formData,
+            [name]: value,
+        });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axiosInstance.post('/auth/login', formData);
+            alert(`Login successful: ${response.data}`);
+        } catch (error) {
+            console.error(error);
+            alert('Login failed');
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <div>
+                <label>Email:</label>
+                <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                />
+            </div>
+            <div>
+                <label>Password:</label>
+                <input
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                />
+            </div>
+            <button type="submit">Login</button>
+        </form>
+    );
+};
+
+export default Login;
+```
+
+**src/pages/RegisterPage.js**:
+```javascript
+import React from 'react';
+import Register from '../components/Register';
+
+const RegisterPage = () => {
+    return (
+        <div>
+            <h2>Register</h2>
+            <Register />
+        </div>
+    );
+};
+
+export default RegisterPage;
+```
+
+**src/pages/LoginPage.js**:
+```javascript
+import React from 'react';
+import Login from '../components/Login';
+
+const LoginPage = () => {
+    return (
+        <div>
+            <h2>Login</h2>
+            <Login />
+        </div>
+    );
+};
+
+export default LoginPage;
+```
+
+**src/App.js**:
+```javascript
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch, Link } from 'react-router-dom';
+import RegisterPage from './pages/RegisterPage';
+import LoginPage from './pages/LoginPage';
+
+const App = () => {
+    return (
+        <Router>
+            <div>
+                <nav>
+                    <ul>
+                        <li>
+                            <Link to="/register">Register</Link>
+                        </li>
+                        <li>
+                            <Link to="/login">Login</Link>
+                        </li>
+                    </ul>
+                </nav>
+
+                <Switch>
+                    <Route path="/register">
+                        <RegisterPage />
+                    </Route>
+                    <Route path="/login">
+                        <LoginPage />
+                    </Route>
+                    <Route path="/">
+                        <h1>Welcome to MindSprint</h1>
+                        <p>Select an option above to get started.</p>
+                    </Route>
+                </Switch>
+            </div>
+        </Router>
+    );
+};
+
+export default App;
+```
+
+### Running the React Application
+
+1. **Start the React Application**:
+    ```bash
+    npm start
+    ```
+
+2. **Access the Application**:
+    - Open your browser and navigate to `http://localhost:3000`.
+
+You should now have a simple React application with navigation links to register and login pages using React Router.
+
+
+
+
+
+
+************************************************************************************
 Certainly! Below is a simple React front-end implementation for the registration and login endpoints, with role-based registration. This example assumes you are familiar with React, Axios for HTTP requests, and basic state management with hooks.
 
 ### Project Setup
