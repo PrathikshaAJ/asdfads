@@ -1,12 +1,41 @@
-import axios from 'axios';
+import React from 'react';
+import { BrowserRouter as Router, Route, Switch, Link } from 'react-router-dom';
+import Register from './components/Register';
+import Login from './components/Login';
 
-const axiosInstance = axios.create({
-    baseURL: 'http://localhost:8080/api',
-    headers: {
-        'Content-Type': 'application/json',
-    },
-});
+const App = () => {
+    return (
+        <Router>
+            <div className="container">
+                <nav className="navbar navbar-expand-lg navbar-light bg-light">
+                    <Link className="navbar-brand" to="/">MindSprint</Link>
+                    <div className="collapse navbar-collapse">
+                        <ul className="navbar-nav mr-auto">
+                            <li className="nav-item">
+                                <Link className="nav-link" to="/register">Register</Link>
+                            </li>
+                            <li className="nav-item">
+                                <Link className="nav-link" to="/login">Login</Link>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+                <Switch>
+                    <Route path="/register" component={Register} />
+                    <Route path="/login" component={Login} />
+                    <Route path="/" exact>
+                        <div className="jumbotron">
+                            <h1 className="display-4">Welcome to MindSprint</h1>
+                            <p className="lead">Select an option above to get started.</p>
+                        </div>
+                    </Route>
+                </Switch>
+            </div>
+        </Router>
+    );
+};
 
-export default axiosInstance;
+export default App;
+
 
 
